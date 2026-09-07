@@ -129,10 +129,28 @@ def test_github_fetcher(record):
 
 @pytest.mark.case("TC-I-011")
 def test_patent_fetcher(record):
+    """An empty result is not proof of health here: `all()` is vacuously true on
+    an empty list. If nothing came back, probe upstream and distinguish a real
+    code fault from Google blocking this host."""
+    from urllib.parse import quote
+
     from app.services import fetch_google_patents
+
     ev, _ = _fetch(fetch_google_patents, PaperMetadata(title=DEMO_PAPER, year=2018))
-    record(f"{len(ev)} items, kinds={sorted({e.kind for e in ev})}")
-    assert all(e.kind == "patent" for e in ev)
+    if ev:
+        record(f"{len(ev)} items, kinds={sorted({e.kind for e in ev})}")
+        assert all(e.kind == "patent" for e in ev)
+        return
+
+    q = quote(f'"{DEMO_PAPER[:80]}"', safe="")
+    probe = httpx.get(f"https://patents.google.com/xhr/query?url=q%3D{q}", timeout=20)
+    record(f"0 items; upstream probe HTTP {probe.status_code}")
+    if probe.status_code in (429, 503) or "Sorry" in probe.text[:200]:
+        pytest.skip(
+            f"Google Patents is blocking this host (HTTP {probe.status_code} anti-bot page). "
+            "Scraped XHR endpoint, not a supported API - patent evidence will be empty."
+        )
+    pytest.fail(f"patent fetcher returned nothing but upstream answered {probe.status_code}")
 
 
 @pytest.mark.case("TC-I-012")
