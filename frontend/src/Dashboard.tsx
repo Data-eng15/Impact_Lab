@@ -918,40 +918,6 @@ function RefReportTab({ refReport, doi }: { refReport: string; doi: string | nul
   );
 }
 
-function DebugLogsTab({ logs }: { logs: TraceLog[] }) {
-  return (
-    <div className="debug-tab">
-      <table className="debug-table">
-        <thead>
-          <tr>
-            <th>Time</th>
-            <th>Agent</th>
-            <th>Message</th>
-            <th>Data</th>
-          </tr>
-        </thead>
-        <tbody>
-          {logs.map((log, i) => (
-            <tr key={i}>
-              <td className="log-time">{log.timestamp}</td>
-              <td><span className="log-agent-badge">{log.agent}</span></td>
-              <td className="log-message">{log.message}</td>
-              <td className="log-data">
-                {Object.keys(log.data).length > 0
-                  ? <code>{JSON.stringify(log.data, null, 0).slice(0, 80)}</code>
-                  : <span className="log-empty">—</span>}
-              </td>
-            </tr>
-          ))}
-          {logs.length === 0 && (
-            <tr><td colSpan={4} className="log-empty-row">No logs yet.</td></tr>
-          )}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 function EvalTab({ result, loading, error }: {
   result: EvalComparison | null;
   loading: boolean;
@@ -1249,7 +1215,7 @@ function CandidatePicker({ candidates, onPick }: {
 
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
-type ActiveTab = "overview" | "evidence" | "ref" | "logs" | "eval" | "betaref";
+type ActiveTab = "overview" | "evidence" | "ref" | "eval" | "betaref";
 
 type TopPaper = { title: string; year: number | null; citations: number; venue: string | null; doi: string | null };
 type ResearcherProfile = {
@@ -1800,7 +1766,7 @@ export default function Dashboard() {
 
         <div className="sidebar-audit-note">
           <span style={{ color: "var(--accent)", marginTop: 1 }}><ShieldCheck size={15} /></span>
-          <p>Every agent step and API call is logged. Open the debug logs tab for full auditability.</p>
+          <p>Every agent step and API call is logged for full auditability.</p>
         </div>
 
         <div className="sidebar-user" style={{ marginTop: "auto" }}>
@@ -1948,12 +1914,6 @@ export default function Dashboard() {
                 REF report
               </button>
             )}
-            {result && (
-              <button className={`tab-btn ${activeTab === "logs" ? "active" : ""}`} onClick={() => setActiveTab("logs")}>
-                Debug logs
-                <span className={`tab-count ${activeTab === "logs" ? "active-count" : ""}`}>{result.logs.length}</span>
-              </button>
-            )}
             <button className={`tab-btn ${activeTab === "eval" ? "active" : ""}`} onClick={() => setActiveTab("eval")}>
               Evaluation
               {evalLoading
@@ -2075,10 +2035,6 @@ export default function Dashboard() {
 
           {result && activeTab === "ref" && result.ref_report && (
             <RefReportTab refReport={result.ref_report} doi={result.metadata.doi} />
-          )}
-
-          {result && activeTab === "logs" && (
-            <DebugLogsTab logs={result.logs} />
           )}
 
           {activeTab === "eval" && (

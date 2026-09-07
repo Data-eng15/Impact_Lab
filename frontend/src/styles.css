@@ -2366,35 +2366,6 @@ a:hover {
 .ref-paragraph { font-size: 14px; line-height: 24px; color: var(--fg-1); margin-bottom: 8px; }
 .ref-list-item { font-size: 14px; line-height: 24px; color: var(--fg-1); padding-left: 16px; margin-bottom: 4px; }
 
-/* Debug tab */
-.debug-tab { overflow-x: auto; }
-.debug-table { width: 100%; border-collapse: collapse; font-size: 12px; font-family: var(--font-mono); }
-.debug-table th {
-  padding: 10px 12px;
-  background: var(--linen);
-  color: var(--fg-2);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  text-align: left;
-  border-bottom: 1px solid var(--rule);
-}
-.debug-table td { padding: 8px 12px; color: var(--fg-1); border-bottom: 1px solid var(--rule); vertical-align: top; }
-.debug-table tr:last-child td { border-bottom: none; }
-.debug-table tr:hover td { background: var(--linen); }
-
-.log-time   { color: var(--fg-3); white-space: nowrap; }
-.log-agent-badge {
-  padding: 2px 7px; border-radius: var(--r-xs);
-  background: var(--indigo-50); color: var(--accent);
-  font-size: 11px; font-weight: 500;
-}
-.log-message { color: var(--fg-1); }
-.log-data code { font-size: 11px; color: var(--fg-2); }
-.log-empty { color: var(--fg-3); }
-.log-empty-row { text-align: center; padding: 32px; color: var(--fg-3); }
-
 /* Eval tab */
 .eval-tab { display: flex; flex-direction: column; gap: 20px; }
 
