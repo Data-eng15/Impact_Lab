@@ -263,6 +263,11 @@ const INITIAL_STATUSES: AgentStatus[] = [
 const EVIDENCE_FILTERS = [
   { key: "all",        label: "All" },
   { key: "downstream", label: "Downstream impact" },
+  { key: "industry_adoption", label: "Industry adoption" },
+  { key: "policy_adoption",   label: "Policy adoption" },
+  { key: "clinical_adoption", label: "Clinical adoption" },
+  { key: "software_adoption", label: "Software adoption" },
+  { key: "metadata_candidate", label: "Metadata candidates" },
   { key: "citation",  label: "Citations" },
   { key: "code",      label: "Code" },
   { key: "patent",    label: "Patents" },

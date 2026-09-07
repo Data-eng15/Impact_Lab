@@ -2862,6 +2862,11 @@ a:hover {
 
 /* Downstream-impact evidence kind tag */
 .kind-tag.downstream { background: var(--indigo-100); color: var(--accent-press); }
+.kind-tag.industry_adoption { background: var(--ochre-100); color: var(--ochre); border-color: transparent; }
+.kind-tag.policy_adoption   { background: var(--rust-100);  color: var(--rust);  border-color: transparent; }
+.kind-tag.clinical_adoption { background: var(--sage-100);  color: var(--sage);  border-color: transparent; }
+.kind-tag.software_adoption { background: var(--indigo-100); color: var(--accent-press); border-color: transparent; }
+.kind-tag.metadata_candidate { background: var(--linen); color: var(--fg-2); border-color: var(--rule); }
 
 /* ── Analysis progress (retrieval animation) ───────────────────────────── */
 .rf-prog {

@@ -67,6 +67,29 @@ def meaningful_title_terms(title: str) -> list[str]:
     ]
 
 
+def build_relevance_filter(title: str, topics: list[str] | None = None):
+    """Reject search hits sharing no distinctive term with the paper.
+
+    Loose free-text searches (policy portals, trial registries, PubMed word
+    search) otherwise collect topically-unrelated results — e.g. a CS
+    "attention" paper should not collect welfare-policy documents.
+    """
+    paper_terms = set(meaningful_title_terms(title))
+    if topics:
+        for t in topics:
+            paper_terms.update(
+                w for w in re.findall(r"[a-z0-9]+", t.lower()) if len(w) > 4
+            )
+
+    def _relevant(item_title: str, item_snippet: str = "") -> bool:
+        if not paper_terms:
+            return True
+        hay = f"{item_title} {item_snippet}".lower()
+        return any(term in hay for term in paper_terms)
+
+    return _relevant
+
+
 def authors_from_crossref(work: dict[str, Any]) -> list[str]:
     authors: list[str] = []
     for author in work.get("author", [])[:8]:
@@ -543,16 +566,23 @@ async def fetch_openalex_fallback(client: httpx.AsyncClient, query: str) -> tupl
         response.raise_for_status()
         results = response.json().get("results", [])
         evidence = []
+        # This is a metadata-resolution search, not a citation search: nothing here
+        # is known to cite the source paper, and past result[0] the title match can
+        # drift onto unrelated work. Filter for relevance, and label accordingly.
+        _relevant = build_relevance_filter(query)
         for item in results:
+            display_name = item.get("display_name") or "Untitled work"
+            if not _relevant(display_name):
+                continue
             evidence.append(
                 EvidenceItem(
-                    title=item.get("display_name") or "Untitled work",
+                    title=display_name,
                     url=item.get("doi") or item.get("id"),
                     year=item.get("publication_year"),
                     authors=[a.get("author", {}).get("display_name", "") for a in item.get("authorships", [])[:5] if a.get("author", {}).get("display_name")],
                     snippet=inverted_abstract_to_text(item.get("abstract_inverted_index")),
                     source="OpenAlex",
-                    kind="citation",
+                    kind="metadata_candidate",
                     citation_count=item.get("cited_by_count"),
                     metric_label="Citations",
                     metric_value=f"{item.get('cited_by_count'):,}" if item.get("cited_by_count") is not None else None,
@@ -703,9 +733,13 @@ async def fetch_pubmed(client: httpx.AsyncClient, metadata: PaperMetadata) -> tu
             return [], logs
 
         pmids = search_resp.json().get("esearchresult", {}).get("idlist", [])
+        # Only the word-search fallback is loose enough to need relevance filtering;
+        # the exact-title and DOI searches are already precise.
+        used_word_fallback = False
         if not pmids:
             # Broader fallback: use DOI or first three title words
             term = metadata.doi if metadata.doi else " ".join(title.split()[:5])
+            used_word_fallback = not metadata.doi
             search_resp2 = await client.get(
                 "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi",
                 params={"db": "pubmed", "term": term, "retmax": 6,
@@ -731,11 +765,14 @@ async def fetch_pubmed(client: httpx.AsyncClient, metadata: PaperMetadata) -> tu
 
         result = summary_resp.json().get("result", {})
         evidence: list[EvidenceItem] = []
+        _relevant = build_relevance_filter(title)
         for pmid in pmids[:6]:
             art = result.get(pmid, {})
             if not art or pmid == "uids":
                 continue
             art_title = art.get("title", "")
+            if used_word_fallback and not _relevant(art_title):
+                continue
             pub_date = art.get("pubdate", "")
             year = int(pub_date[:4]) if pub_date[:4].isdigit() else None
             authors_raw = art.get("authors", [])
@@ -790,6 +827,7 @@ async def fetch_clinical_trials(client: httpx.AsyncClient, metadata: PaperMetada
 
         studies = resp.json().get("studies", [])
         evidence: list[EvidenceItem] = []
+        _relevant = build_relevance_filter(title)
         for study in studies[:5]:
             proto = study.get("protocolSection", {})
             id_mod = proto.get("identificationModule", {})
@@ -802,6 +840,8 @@ async def fetch_clinical_trials(client: httpx.AsyncClient, metadata: PaperMetada
             cond_mod = proto.get("conditionsModule", {})
             conditions = ", ".join(cond_mod.get("conditions", [])[:3])
             snippet = f"Clinical trial ({overall_status}). Conditions: {conditions}." if conditions else f"Clinical trial ({overall_status})."
+            if not _relevant(trial_title, snippet):
+                continue
             evidence.append(EvidenceItem(
                 title=trial_title,
                 url=f"https://clinicaltrials.gov/study/{nct_id}",
@@ -836,21 +876,7 @@ async def fetch_soft_sciences(client: httpx.AsyncClient, metadata: PaperMetadata
     if not title or title == "Unknown title":
         return [], logs
 
-    # Distinctive paper terms used to filter out generic false-positive matches
-    # (e.g. a CS "attention" paper should not collect welfare-policy documents).
-    paper_terms = set(meaningful_title_terms(title))
-    if topics:
-        for t in topics:
-            paper_terms.update(
-                w for w in re.findall(r"[a-z0-9]+", t.lower()) if len(w) > 4
-            )
-
-    def _relevant(item_title: str, item_snippet: str) -> bool:
-        """Keep an item only if it shares a distinctive term with the paper."""
-        if not paper_terms:
-            return True
-        hay = f"{item_title} {item_snippet}".lower()
-        return any(term in hay for term in paper_terms)
+    _relevant = build_relevance_filter(title, topics)
 
     # Build a topic-aware query: title head + 1-2 high-signal topic terms
     title_terms = meaningful_title_terms(title)
@@ -1081,7 +1107,47 @@ async def fetch_downstream_impact(
                 g = grants[0]
                 award = f" {g['award_id']}" if g.get("award_id") else ""
                 grant_note = f" Funded follow-on research ({g.get('funder_display_name', 'a research funder')}{award})."
-            if out_cites:
+            # Institution type and venue are already in the (unselected) response — no extra API cost.
+            inst_types: set[str] = set()
+            inst_by_type: dict[str, str] = {}
+            for a in (c.get("authorships") or []):
+                for inst in (a.get("institutions") or []):
+                    t = inst.get("type")
+                    if not t:
+                        continue
+                    inst_types.add(t)
+                    if inst.get("display_name"):
+                        inst_by_type.setdefault(t, inst["display_name"])
+
+            adopter = None
+            for t, k, lbl, descriptor, uptake in (
+                ("company",    "industry_adoption", "Industry adopter",        "a commercial organisation", "industrial uptake"),
+                ("government", "policy_adoption",   "Government body",         "a government body",         "policy-relevant uptake"),
+                ("healthcare", "clinical_adoption", "Healthcare organisation", "a healthcare organisation", "clinical translation"),
+            ):
+                if t in inst_types:
+                    # Name the institution of the MATCHED type, not merely the first typed one.
+                    adopter = (k, lbl, inst_by_type.get(t), descriptor, uptake)
+                    break
+
+            source_name = ((c.get("primary_location") or {}).get("source") or {}).get("display_name") or ""
+            is_software_paper = (
+                c.get("type") == "software"
+                or "open source software" in source_name.lower()
+                or "softwarex" in source_name.lower()
+            )
+
+            kind, is_strong = "downstream", bool(out_cites or grants)
+            if adopter:
+                kind, label, org, descriptor, uptake = adopter
+                subject = f"{org}, {descriptor}," if org else descriptor.capitalize()
+                snippet = f"{subject} cites this work ({c_cites:,} citations) — evidencing {uptake}."
+                value, is_strong = org or f"{c_cites:,} cites", True
+            elif is_software_paper:
+                kind, label, value = "software_adoption", "Software adoption", f"{c_cites:,} cites"
+                snippet = f"A software paper describing a tool built on this work ({c_cites:,} citations) — evidencing practical/code adoption."
+                is_strong = True
+            elif out_cites:
                 snippet = f"Cites this work and is itself cited {c_cites:,} times — exceeding the source paper, a strong downstream-impact signal.{grant_note}"
                 label, value = "Out-cites source", f"{c_cites:,} cites"
             elif grants:
@@ -1099,12 +1165,12 @@ async def fetch_downstream_impact(
                 authors=authors,
                 snippet=snippet,
                 source="OpenAlex",
-                kind="downstream",
+                kind=kind,
                 citation_count=c_cites,
                 metric_label=label,
                 metric_value=value,
             )
-            (strong if (out_cites or grants) else notable).append(item)
+            (strong if is_strong else notable).append(item)
 
         evidence = (strong + notable)[:5]
         logs.append(log("Downstream", f"Traced {len(evidence)} downstream adopters ({len(strong)} strong)", source_citations=x_cites))
