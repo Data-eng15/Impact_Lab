@@ -308,10 +308,15 @@ def _trim_words(text: str, hard_max: int = 165) -> str:
     count = 0
     for s in sents:
         w = len(s.split())
-        if count + w > hard_max and out:
+        if count + w > hard_max:
             break
         out.append(s); count += w
-    return " ".join(out) if out else " ".join(text.split()[:hard_max])
+    if out:
+        return " ".join(out)
+    # First sentence alone busts the cap (a run-on from a small model): hard-cut
+    # it rather than returning the whole thing and defeating the safety net.
+    return " ".join(text.split()[:hard_max]).rstrip(" ,;:") + "."
+
 
 
 def build_references(evidence: list[EvidenceItem], max_refs: int = 6,

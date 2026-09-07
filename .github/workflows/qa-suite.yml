@@ -1,0 +1,50 @@
+name: QA suite
+
+# Continuous testing for the REFlect AI pipeline. The unit layer is hermetic and
+# always runs in CI. The integration, functional and non-functional layers need
+# the campus VM (live backend, ngrok tunnel, Edge browser), so they are run
+# locally with `python qa/run_all.py` and are not attempted here.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'qa/**'
+      - '.github/workflows/qa-suite.yml'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install pytest openpyxl
+
+      - name: Run unit layer
+        run: python -m pytest qa/test_unit.py -q
+
+      - name: Build test report
+        if: always()
+        run: python qa/build_report.py
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-test-report
+          path: |
+            qa/REFlect_AI_Test_Report.xlsx
+            qa/results.json
