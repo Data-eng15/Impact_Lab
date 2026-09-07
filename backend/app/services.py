@@ -1413,6 +1413,13 @@ async def retrieval_node(state: AnalysisState) -> AnalysisState:
             github_task, patent_task, pubmed_task, clinical_task, softsci_task,
         )
         citation_count = citation_count or fallback_count
+        source_yield = {
+            "semantic_scholar": len(scholar_evidence), "openalex_fallback": len(fallback_evidence),
+            "openalex_enrichment": len(content_evidence), "downstream": len(downstream_evidence),
+            "github": len(code_evidence), "patents": len(patent_evidence),
+            "pubmed": len(pubmed_evidence), "clinical_trials": len(clinical_evidence),
+            "soft_sciences": len(softsci_evidence),
+        }
         logs.extend(scholar_logs + fallback_logs + content_logs + downstream_logs + code_logs
                     + patent_logs + pubmed_logs + clinical_logs + softsci_logs)
         evidence = dedupe_evidence(
@@ -1433,11 +1440,20 @@ async def retrieval_node(state: AnalysisState) -> AnalysisState:
             ))
             extra_results = await asyncio.gather(*[optional_callables[s]() for s in missing])
             extra_ev: list[EvidenceItem] = []
-            for ev, lg in extra_results:
+            for src, (ev, lg) in zip(missing, extra_results):
                 extra_ev += ev
+                source_yield[src] = len(ev)
                 logs.extend(lg)
             evidence = dedupe_evidence(evidence + extra_ev)
             active = active + missing
+
+    evidence = diversify_evidence(evidence)
+    empty_sources = sorted(k for k, v in source_yield.items() if v == 0)
+    if empty_sources:
+        logs.append(log(
+            "Router", f"{len(empty_sources)} source(s) returned no evidence",
+            sources_empty=empty_sources, source_yield=source_yield,
+        ))
 
     skipped = [s for s in ALL_SOURCES if s not in active]
     routing_metadata = {
@@ -1450,6 +1466,8 @@ async def retrieval_node(state: AnalysisState) -> AnalysisState:
         "all_sources": list(ALL_SOURCES),
         "fallback_triggered": fallback_triggered,
         "evidence_count": len(evidence),
+        "source_yield": source_yield,
+        "sources_empty": empty_sources,
         "saved_calls": len(skipped),
     }
     statuses[1] = status("scholar", "Scholar", AgentState.complete if evidence else AgentState.warning, f"{len(evidence)} evidence items retrieved")
@@ -1697,6 +1715,30 @@ def compose_summary(
         "references": references,
         "logs": logs,
     }
+
+
+def diversify_evidence(items: list[EvidenceItem]) -> list[EvidenceItem]:
+    """Round-robin evidence by kind, preserving every item.
+
+    Sources are concatenated with Semantic Scholar's citations near the front,
+    so a prolific citation list used to fill the downstream 24-item candidate
+    cap on its own and starve code, patent, policy and clinical evidence out of
+    the reviewer's list entirely. Interleaving guarantees each evidence type a
+    slot in the first pass; nothing is dropped, only reordered.
+    """
+    buckets: dict[str, list[EvidenceItem]] = {}
+    for it in items:
+        buckets.setdefault(it.kind, []).append(it)
+    out: list[EvidenceItem] = []
+    while len(out) < len(items):
+        progressed = False
+        for bucket in buckets.values():
+            if bucket:
+                out.append(bucket.pop(0))
+                progressed = True
+        if not progressed:
+            break
+    return out
 
 
 def dedupe_evidence(items: list[EvidenceItem]) -> list[EvidenceItem]:
