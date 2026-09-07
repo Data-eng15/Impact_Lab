@@ -680,8 +680,12 @@ async def fetch_github_adoption(client: httpx.AsyncClient, metadata: PaperMetada
     if os.getenv("GITHUB_TOKEN"):
         headers["Authorization"] = f"Bearer {os.environ['GITHUB_TOKEN']}"
 
-    quoted_title = f'"{title[:80]}"'
-    query = f"{quoted_title} in:name,description,readme"
+    search_title = title
+    if len(search_title) > 80:
+        # A mid-word cut inside a quoted phrase can never match, so drop the
+        # partial trailing word rather than searching for a fragment.
+        search_title = search_title[:81].rsplit(" ", 1)[0]
+    query = f'"{search_title}" in:name,description,readme'
     try:
         response = await client.get(
             "https://api.github.com/search/repositories",
