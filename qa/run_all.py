@@ -19,6 +19,7 @@ LAYERS = {
     "integration": "test_integration.py",
     "functional": "test_functional_ui.py",
     "nonfunctional": "test_nonfunctional.py",
+    "security": "test_security.py",
 }
 
 

@@ -248,4 +248,9 @@ CASES: list[dict] = [
          expected="Task reports Running - the supervisor restarts uvicorn if it exits mid-demo."),
 ]
 
+# Suite 2: adversarial security cases live in their own module for readability.
+from testcases_security import SECURITY_CASES  # noqa: E402
+
+CASES.extend(SECURITY_CASES)
+
 BY_ID = {c["id"]: c for c in CASES}

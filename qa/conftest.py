@@ -16,6 +16,17 @@ QA_DIR = Path(__file__).parent
 REPO = QA_DIR.parent
 sys.path.insert(0, str(REPO / "backend"))
 
+# Mirror the server's environment. Without this, app.auth imports its fallback
+# constants and security assertions read the defaults rather than what is
+# actually deployed - which silently inverts their meaning.
+_ENV = REPO / "backend" / ".env"
+if _ENV.exists():
+    for _line in _ENV.read_text(encoding="utf-8").splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith("#") and "=" in _line:
+            _k, _v = _line.split("=", 1)
+            os.environ.setdefault(_k.strip(), _v.strip())
+
 LOCAL_API = os.getenv("QA_LOCAL_API", "http://127.0.0.1:8000")
 TUNNEL_API = os.getenv("QA_TUNNEL_API", "https://gravy-cardboard-brigade.ngrok-free.dev")
 SITE = os.getenv("QA_SITE", "https://reflect-ai-a6r.pages.dev")

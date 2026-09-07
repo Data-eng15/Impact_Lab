@@ -1,0 +1,92 @@
+"""Security breach catalogue (suite 2).
+
+Adversarial cases: token forgery, authorisation bypass, injection, data
+exposure and abuse control. Scoped strictly to this application on the
+owner's own infrastructure; all probes are non-destructive.
+"""
+from testcases import CRIT, MAJ, MIN, P0, P1, P2
+
+SECURITY_CASES: list[dict] = [
+    # -- Token / authentication integrity --------------------------------------
+    dict(id="TC-S-001", layer="Security", module="Token forgery", priority=P0, severity=CRIT,
+         title="Token forged with the shipped default secret is rejected",
+         precondition="auth.py falls back to LINKEDIN_JWT_SECRET='change-me-in-production' when unset.",
+         steps="1. Mint a JWT signed with the known default secret.\n2. Call a protected endpoint with it.",
+         expected="401/403. If accepted, the deployment is using the public default secret and anyone can mint an admin token."),
+    dict(id="TC-S-002", layer="Security", module="Token forgery", priority=P0, severity=CRIT,
+         title="alg=none token is rejected",
+         precondition="Backend uses HS256.",
+         steps="1. Craft an unsigned JWT with header alg=none.\n2. Call a protected endpoint with it.",
+         expected="401/403 - the decoder must pin the algorithm and refuse unsigned tokens."),
+    dict(id="TC-S-003", layer="Security", module="Token forgery", priority=P0, severity=CRIT,
+         title="Signature-stripped token is rejected",
+         precondition="A valid token.",
+         steps="1. Remove the signature segment, keeping header and payload.\n2. Call a protected endpoint.",
+         expected="401/403."),
+    dict(id="TC-S-004", layer="Security", module="Token forgery", priority=P0, severity=CRIT,
+         title="Token signed with an attacker-chosen secret is rejected",
+         precondition="Attacker does not know the server secret.",
+         steps="1. Sign a well-formed payload with an arbitrary secret.\n2. Call a protected endpoint.",
+         expected="401/403 - signature verification fails."),
+    dict(id="TC-S-005", layer="Security", module="Session lifetime", priority=P1, severity=MAJ,
+         title="Issued tokens carry an expiry claim",
+         precondition="create_orcid_token() builds the session JWT.",
+         steps="1. Mint a token.\n2. Decode it and inspect the claims for 'exp'.",
+         expected="An 'exp' claim is present. Without it a leaked token is valid forever and cannot be revoked."),
+    dict(id="TC-S-006", layer="Security", module="Session lifetime", priority=P1, severity=MAJ,
+         title="An expired token is rejected",
+         precondition="A token whose exp is in the past.",
+         steps="1. Mint a token with exp set to the past.\n2. Call a protected endpoint.",
+         expected="401/403 - expiry is enforced at verification time."),
+
+    # -- Authorisation ---------------------------------------------------------
+    dict(id="TC-S-007", layer="Security", module="Access control", priority=P0, severity=CRIT,
+         title="History is scoped to the caller and cannot be pivoted to another user",
+         precondition="Two distinct user tokens.",
+         steps="1. Request /api/history as user A with a uid query parameter naming user B.\n2. Inspect the uid in the response.",
+         expected="The response is scoped to the token's own uid; the query parameter cannot override it (no IDOR)."),
+    dict(id="TC-S-008", layer="Security", module="Data exposure", priority=P1, severity=MAJ,
+         title="Unauthenticated dataset export does not leak per-user identifiers",
+         precondition="/api/dataset is declared without an auth dependency.",
+         steps="1. GET /api/dataset with no token.\n2. Scan the payload for uid, email or ORCID identifiers.",
+         expected="Either the endpoint requires auth, or the exported rows carry no per-user identifiers."),
+    dict(id="TC-S-009", layer="Security", module="Access control", priority=P1, severity=MAJ,
+         title="Expensive LLM endpoints are not reachable anonymously",
+         precondition="No token.",
+         steps="1. POST /api/analyze, /api/compose, /api/evaluate and /api/ref/beta with no token.",
+         expected="Every one returns 401/403 - no anonymous consumption of paid inference."),
+
+    # -- Injection / input handling -------------------------------------------
+    dict(id="TC-S-010", layer="Security", module="Injection", priority=P1, severity=MAJ,
+         title="Path traversal payloads do not reach the filesystem",
+         precondition="Backend up.",
+         steps="1. Submit ../../ traversal sequences to the search endpoint.\n2. Inspect the response for file content.",
+         expected="Treated as an opaque string; no filesystem content and no 500."),
+    dict(id="TC-S-011", layer="Security", module="Injection", priority=P1, severity=MAJ,
+         title="Script payloads are not reflected unescaped",
+         precondition="Backend up.",
+         steps="1. Submit a script tag as the query.\n2. Inspect the raw response body.",
+         expected="No executable script echoed into an HTML response context."),
+    dict(id="TC-S-012", layer="Security", module="Injection", priority=P2, severity=MIN,
+         title="Deeply nested JSON does not exhaust the parser",
+         precondition="Valid token.",
+         steps="1. POST a deeply nested JSON object.\n2. Re-check /health.",
+         expected="Bounded 4xx response and the service stays healthy."),
+
+    # -- Abuse control / hardening --------------------------------------------
+    dict(id="TC-S-013", layer="Security", module="Rate limiting", priority=P1, severity=MAJ,
+         title="Sustained request bursts are throttled",
+         precondition="rate_limit() is wired to the search endpoint at 20 req / 60 s.",
+         steps="1. Issue requests past the configured limit from one IP.\n2. Observe the status codes.",
+         expected="429 Too Many Requests once the limit is exceeded."),
+    dict(id="TC-S-014", layer="Security", module="Error handling", priority=P1, severity=MAJ,
+         title="Server errors do not leak stack traces or internal paths",
+         precondition="Backend up.",
+         steps="1. Provoke error responses across several endpoints.\n2. Scan bodies for tracebacks and filesystem paths.",
+         expected="No 'Traceback', module paths or internal file locations in any response body."),
+    dict(id="TC-S-015", layer="Security", module="CORS", priority=P1, severity=MAJ,
+         title="CORS does not combine a wildcard origin with credentials",
+         precondition="Backend up.",
+         steps="1. Send a preflight from an arbitrary attacker origin.\n2. Inspect the allow-origin and allow-credentials headers.",
+         expected="An arbitrary origin is not reflected alongside allow-credentials: true."),
+]
